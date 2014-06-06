@@ -1,5 +1,5 @@
 /**
- * Copyright 2012 Jorge Aliss (jaliss at gmail dot com) - twitter: @jaliss
+ * Copyright 2012-2014 Jorge Aliss (jaliss at gmail dot com) - twitter: @jaliss
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,23 +16,13 @@
  */
 package securesocial.core.java;
 
-import play.Application;
-import play.Plugin;
-import securesocial.core.PasswordInfo;
 import securesocial.core.providers.utils.PasswordHasher;
 
 /**
  * Base class for all password hashers written in Java.
  *
- * Subclasses need to implement:
- *      public PasswordInfo hash(String plainPassword)
- *      public boolean matches(PasswordInfo passwordInfo, String suppliedPassword)
- *      public String id()
+ * This is deprecated, extend PasswordHasher directly.
  */
+@Deprecated
 public abstract class BasePasswordHasher extends PasswordHasher {
-    protected Application application;
-
-    public BasePasswordHasher(Application application) {
-        this.application = application;
-    }
 }

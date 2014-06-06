@@ -16,32 +16,28 @@
  */
 package controllers
 
-import play.api.mvc._
-import securesocial.core.{Identity, Authorization}
+import securesocial.core._
+import service.DemoUser
+import play.api.mvc.RequestHeader
 
-object Application extends Controller with securesocial.core.SecureSocial {
-
+class Application(override implicit val env: RuntimeEnvironment[DemoUser]) extends securesocial.core.SecureSocial[DemoUser] {
   def index = SecuredAction { implicit request =>
-    Ok(views.html.index(request.user))
+    Ok(views.html.index(request.user.main))
   }
 
-  // a sample action using the new authorization hook
+  // a sample action using an authorization implementation
   def onlyTwitter = SecuredAction(WithProvider("twitter")) { implicit request =>
-//
-//    Note: If you had a User class and returned an instance of it from UserService, this
-//          is how you would convert Identity to your own class:
-//
-//    request.user match {
-//      case user: User => // do whatever you need with your user class
-//      case _ => // did not get a User instance, should not happen,log error/thow exception
-//    }
     Ok("You can see this because you logged in using Twitter")
+  }
+
+  def linkResult = SecuredAction { implicit request =>
+    Ok(views.html.linkResult(request.user))
   }
 }
 
 // An Authorization implementation that only authorizes uses that logged in using twitter
-case class WithProvider(provider: String) extends Authorization {
-  def isAuthorized(user: Identity) = {
-    user.identityId.providerId == provider
+case class WithProvider(provider: String) extends Authorization[DemoUser] {
+  def isAuthorized(user: DemoUser, request: RequestHeader) = {
+    user.main.providerId == provider
   }
 }

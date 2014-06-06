@@ -1,4 +1,3 @@
-
 /**
  * Copyright 2013 Brian Porter (poornerd at gmail dot com) - twitter: @poornerd
  *
@@ -21,46 +20,48 @@ package securesocial.core.providers
 
 import securesocial.core._
 import play.api.libs.oauth.{RequestToken, OAuthCalculator}
-import play.api.libs.ws.WS
-import play.api.{Application, Logger}
+import play.api.Logger
 import XingProvider._
+import scala.concurrent.{ExecutionContext, Future}
+import securesocial.core.services.{RoutesService, CacheService, HttpService}
+import play.api.libs.json.JsObject
 
 /**
  * A Xing Provider
  */
-class XingProvider(application: Application) extends OAuth1Provider(application) {
-  override def id = XingProvider.Xing
-
-  override  def fillProfile(user: SocialUser): SocialUser = {
-    val oauthInfo = user.oAuth1Info.get
-    val call = WS.url(XingProvider.VerifyCredentials).sign(
-      OAuthCalculator(SecureSocial.serviceInfoFor(user).get.key,
-      RequestToken(oauthInfo.token, oauthInfo.secret))
-    ).get()
-
-    try {
-      val response = awaitResult(call)
-      val me = response.json
-
-      val userId = (me \\ Id ).head.as[String]
-      val displayName = (me \\ Name).head.as[String]
-      val lastName = (me \\ LastName).head.as[String]
-      val firstName = (me \\ FirstName).head.as[String]
-      val profileImage = (me \\ Large ).head.as[String]
-      val email = (me  \\ ActiveEmail).head.as[String]
-      user.copy(identityId = IdentityId(userId, id),
-        fullName = displayName,
-        firstName = firstName,
-        lastName = lastName,
-        avatarUrl = Some(profileImage),
-        email = Some(email)
+class XingProvider(
+        routesService: RoutesService,
+        httpService: HttpService,
+        cacheService: CacheService,
+        client: OAuth1Client = new OAuth1Client.Default(ServiceInfoHelper.forProvider(VkProvider.Vk))
+      ) extends OAuth1Provider(
+        routesService,
+        cacheService,
+        client
       )
+{
+  override val id = XingProvider.Xing
 
-    } catch {
-      case e: Exception => {
+  override  def fillProfile(info: OAuth1Info): Future[BasicProfile] = {
+    import ExecutionContext.Implicits.global
+    httpService.url(XingProvider.VerifyCredentials).withQueryString(
+      "fields" -> Seq(Id, Name, LastName, FirstName, s"$ProfileImage.$Large", ActiveEmail).mkString(",")
+    ).sign(
+      OAuthCalculator(client.serviceInfo.key,
+      RequestToken(info.token, info.secret))
+    ).get().map { response =>
+      val me = (response.json \ Users).as[Seq[JsObject]].head
+      val userId = (me \ Id).as[String]
+      val displayName = (me \ Name).asOpt[String]
+      val lastName = (me \ LastName).asOpt[String]
+      val firstName = (me \ FirstName).asOpt[String]
+      val profileImage = (me \ ProfileImage \ Large).asOpt[String]
+      val email = (me  \ ActiveEmail).asOpt[String]
+      BasicProfile(id, userId, displayName, firstName, lastName, email, profileImage, authMethod, Some(info))
+    } recover {
+      case e =>
         Logger.error("[securesocial] error retrieving profile information from Xing", e)
         throw new AuthenticationException()
-      }
     }
   }
 }

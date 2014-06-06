@@ -1,5 +1,5 @@
 /**
- * Copyright 2012 Jorge Aliss (jaliss at gmail dot com) - twitter: @jaliss
+ * Copyright 2012-2014 Jorge Aliss (jaliss at gmail dot com) - twitter: @jaliss
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,18 @@
  */
 package securesocial.core.java;
 
-import play.Application;
+import play.libs.F;
 import play.libs.Scala;
+import scala.*;
 import scala.Option;
-import securesocial.core.Identity;
-import securesocial.core.IdentityId;
+import scala.concurrent.Future;
+import securesocial.core.BasicProfile;
+import securesocial.core.PasswordInfo;
+import securesocial.core.providers.MailToken;
+import securesocial.core.services.SaveMode;
+import securesocial.core.services.UserService;
 
-import java.lang.reflect.Field;
+import java.lang.Boolean;
 
 /**
  * A base user service for developers that want to write their UserService in Java.
@@ -30,35 +35,23 @@ import java.lang.reflect.Field;
  * Note: You need to implement all the doXXX methods below.
  *
  */
-public abstract class BaseUserService extends securesocial.core.UserServicePlugin {
-
-    public static final String APPLICATION = "application";
-
-    // a bit of black magic to be able to extend a Scala plugin :)
-    private static play.api.Application toScala(Application app) {
-        try {
-            Field field = app.getClass().getDeclaredField(APPLICATION);
-            field.setAccessible(true);
-            return (play.api.Application) field.get(app);
-        } catch (Exception e) {
-            throw new RuntimeException("Unable to initialize user service", e);
-        }
-    }
-
-    public BaseUserService(Application application) {
-        super(toScala(application));
+public abstract class BaseUserService<U> implements UserService<U> {
+    protected BaseUserService() {
     }
 
     /**
      * Finds an Identity that maches the specified id
      *
-     * @param id the user id
      * @return an optional user
      */
     @Override
-    public Option<securesocial.core.Identity> find(IdentityId id) {
-        Identity identity = doFind(id);
-        return Scala.Option(identity);
+    public Future<Option<BasicProfile>> find(String providerId, String userId) {
+        return doFind(providerId, userId).map(new F.Function<BasicProfile, Option<BasicProfile>>() {
+            @Override
+            public Option<BasicProfile> apply(BasicProfile user) throws Throwable {
+                return Scala.Option(user);
+            }
+        }).wrapped();
     }
 
     /**
@@ -72,9 +65,12 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      * @return
      */
     @Override
-    public Option<securesocial.core.Identity> findByEmailAndProvider(String email, String providerId) {
-        Identity identity = doFindByEmailAndProvider(email, providerId);
-        return Scala.Option(identity);
+    public Future<Option<BasicProfile>> findByEmailAndProvider(String email, String providerId) {
+        return doFindByEmailAndProvider(email, providerId).map(new F.Function<BasicProfile, Option<BasicProfile>>() {
+            public Option<BasicProfile> apply(BasicProfile user) throws Throwable {
+                return Scala.Option(user);
+            }
+        }).wrapped();
     }
 
     /**
@@ -84,8 +80,39 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      * @param user
      */
     @Override
-    public Identity save(securesocial.core.Identity user) {
-        return doSave(user);
+    public Future<U> save(BasicProfile user, SaveMode mode) {
+        return doSave(user, mode).wrapped();
+    }
+
+    /**
+     * Links the current user Identity to another
+     *
+     * @param current The Identity of the current user
+     * @param to The Identity that needs to be linked to the current user
+     */
+    @Override
+    public Future<U> link(U current, BasicProfile to) {
+        return doLink(current, to).wrapped();
+    }
+
+    @Override
+    public Future<scala.Option<PasswordInfo>> passwordInfoFor(U user) {
+        return doPasswordInfoFor(user).map(new F.Function<PasswordInfo, Option<PasswordInfo>>() {
+            @Override
+            public Option<PasswordInfo> apply(PasswordInfo passwordInfo) throws Throwable {
+                return Scala.Option(passwordInfo);
+            }
+        }).wrapped();
+    }
+
+    @Override
+    public Future<scala.Option<BasicProfile>> updatePasswordInfo(U user, PasswordInfo info) {
+        return doUpdatePasswordInfo(user, info).map(new F.Function<BasicProfile, Option<BasicProfile>>() {
+            @Override
+            public Option<BasicProfile> apply(BasicProfile basicProfile) throws Throwable {
+                return Scala.Option(basicProfile);
+            }
+        }).wrapped();
     }
 
     /**
@@ -95,12 +122,17 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      * Note: If you do not plan to use the UsernamePassword provider just provide en empty
      * implementation
      *
-     * @param token The token to save
+     * @param mailToken The token to save
      * @return A string with a uuid that will be embedded in the welcome email.
      */
     @Override
-    public void save(securesocial.core.providers.Token token) {
-        doSave(Token.fromScala(token));
+    public Future<MailToken> saveToken(MailToken mailToken) {
+        return doSaveToken(Token.fromScala(mailToken)).map(new F.Function<Token, MailToken>() {
+            @Override
+            public MailToken apply(Token token) throws Throwable {
+                return token.toScala();
+            }
+        }).wrapped();
     }
 
     /**
@@ -113,10 +145,14 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      * @return
      */
     @Override
-    public Option<securesocial.core.providers.Token> findToken(String token) {
-        Token javaToken = doFindToken(token);
-        securesocial.core.providers.Token scalaToken = javaToken != null ? javaToken.toScala() : null;
-        return Scala.Option(scalaToken);
+    public Future<Option<MailToken>> findToken(String token) {
+        return doFindToken(token).map(new F.Function<Token, Option<MailToken>>() {
+            @Override
+            public Option<MailToken> apply(Token token) throws Throwable {
+                MailToken scalaToken =  token  != null ? token.toScala() : null;
+                return Scala.Option(scalaToken);
+            }
+        }).wrapped();
     }
 
     /**
@@ -128,8 +164,14 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      * @param uuid the token id
      */
     @Override
-    public void deleteToken(String uuid) {
-        doDeleteToken(uuid);
+    public Future<scala.Option<MailToken>> deleteToken(String uuid) {
+        return doDeleteToken(uuid).map(new F.Function<Token, Option<MailToken>>() {
+            @Override
+            public Option<MailToken> apply(Token token) throws Throwable {
+                MailToken scalaToken =  token  != null ? token.toScala() : null;
+                return Scala.Option(scalaToken);
+            }
+        }).wrapped();
     }
 
     /**
@@ -150,7 +192,7 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      *
      * @param user
      */
-    public abstract Identity doSave(Identity user);
+    public abstract F.Promise<U> doSave(BasicProfile user, SaveMode mode);
 
     /**
      * Saves a token
@@ -160,13 +202,25 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      *
      * @param token
      */
-    public abstract void doSave(Token token);
+    public abstract F.Promise<Token> doSaveToken(Token token);
+
+    /**
+     * Links the current user Identity to another
+     *
+     * @param current The Identity of the current user
+     * @param to The Identity that needs to be linked to the current user
+     */
+    public abstract F.Promise<U> doLink(U current, BasicProfile to);
 
     /**
      * Finds the user in the backing store.
      * @return an Identity instance or null if no user matches the specified id
      */
-    public abstract Identity doFind(IdentityId identityId);
+    public abstract F.Promise<BasicProfile> doFind(String providerId, String userId);
+
+    public abstract F.Promise<PasswordInfo>  doPasswordInfoFor(U user);
+
+    public abstract F.Promise<BasicProfile> doUpdatePasswordInfo(U user, PasswordInfo info);
 
     /**
      * Finds a token
@@ -177,7 +231,7 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      * @param tokenId the token id
      * @return a Token instance or null if no token matches the specified id
      */
-    public abstract Token doFindToken(String tokenId);
+    public abstract F.Promise<Token> doFindToken(String tokenId);
 
 
     /**
@@ -190,7 +244,7 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      * @param providerId - the provider id
      * @return an Identity instance or null if no user matches the specified id
      */
-    public abstract Identity doFindByEmailAndProvider(String email, String providerId);
+    public abstract F.Promise<BasicProfile> doFindByEmailAndProvider(String email, String providerId);
 
     /**
      * Deletes a token
@@ -200,7 +254,7 @@ public abstract class BaseUserService extends securesocial.core.UserServicePlugi
      *
      * @param uuid the token id
      */
-    public abstract void doDeleteToken(String uuid);
+    public abstract F.Promise<Token> doDeleteToken(String uuid);
 
     /**
      * Deletes all expired tokens
